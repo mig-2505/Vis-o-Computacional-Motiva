@@ -1,0 +1,22 @@
+Limitações que devem ser melhoradas 11/08:
+1. Referencia: Precisa nescessariamente de uma referencia, no caso esta usando uma folha A4 vermelha, caso precisar mudar a referencia, ira precisar
+arrumar as cores no HSV, e fazer as medicoes da outra referencia
+2. Mediçoes em diferentes planos: depedeno do plano, ira mudar as medições, quanto mais "longe" a grama, menos confiavel sera a medida.
+Para ficar exatas as medidas, por enquanto, a camera precisa estar em um plano fixo, ou mirando no centro, ou por cima
+
+Possiveis melhorias:
+1. Adicionar I.A
+2. Calibração fixa da câmera (a mais indicada para o seu caso real)
+Se a câmera for instalada em um ponto fixo (poste, suporte, drone em altura constante) apontando sempre para o mesmo ângulo/distância do
+chão, você faz a calibração uma vez só (com a referência), anota a razão pixels/cm daquela posição específica, e usa esse valor fixo para
+sempre — sem precisar colocar objeto de referência nas fotos seguintes. Isso funciona muito bem para o seu cenário real
+(câmera monitorando avenidas em posição fixa), porque distância câmera→grama não muda.
+3. Refinar dados como a mascara, e testar em outras condicoes
+
+----------------------------------------------------//-----------------------------------------------------------------
+
+Melhorias feitas
+1. Calibracao com camera fixa:
+Limitações para deixar claro:
+Limitação que você deve deixar clara na apresentação do protótipo: se a câmera balançar, for reposicionada, trocar de zoom,
+ou a grama estiver em um plano de profundidade diferente do que foi calibrado (ex: relevo irregular da avenida), a medida degrada.

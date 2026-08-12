@@ -1,270 +1,425 @@
 import streamlit as st
-import cv2
+import pandas as pd
 import numpy as np
+import cv2
+from datetime import datetime, timedelta
 import time
-from datetime import datetime
-from pathlib import Path
 
 # ============================================================
-# CONFIGURAÇÃO DA PÁGINA
+# GREEN SENSE — MONITORAMENTO INTELIGENTE DE VEGETAÇÃO
 # ============================================================
 
 st.set_page_config(
-    page_title="GreenGuard | Motiva",
+    page_title="GreenSense | Motiva",
     page_icon="🌱",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ============================================================
-# CONFIGURAÇÃO DAS CÂMERAS
+# CONFIGURAÇÕES DO PROJETO
+# ============================================================
+
+TOTAL_CAMERAS = 18
+TOTAL_SENSORS = 36
+TOTAL_KM = 180
+
+# ============================================================
+# CÂMERAS
 # ============================================================
 
 CAMERAS = {
-    "CAM-001": {
-        "nome": "Ponto 01",
-        "rodovia": "SP-XXX",
-        "km": "123+400",
+    "CAM-01": {
+        "km": "KM 001+200",
         "sentido": "Norte",
+        "status": "online",
     },
-    "CAM-002": {
-        "nome": "Ponto 02",
-        "rodovia": "SP-XXX",
-        "km": "124+100",
+    "CAM-02": {
+        "km": "KM 014+800",
         "sentido": "Sul",
+        "status": "online",
     },
-    "CAM-003": {
-        "nome": "Ponto 03",
-        "rodovia": "SP-XXX",
-        "km": "126+700",
+    "CAM-03": {
+        "km": "KM 027+500",
         "sentido": "Norte",
+        "status": "online",
     },
-    "CAM-004": {
-        "nome": "Ponto 04",
-        "rodovia": "SP-XXX",
-        "km": "129+200",
+    "CAM-04": {
+        "km": "KM 041+100",
         "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-05": {
+        "km": "KM 055+700",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-06": {
+        "km": "KM 068+300",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-07": {
+        "km": "KM 081+900",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-08": {
+        "km": "KM 095+400",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-09": {
+        "km": "KM 108+200",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-10": {
+        "km": "KM 121+600",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-11": {
+        "km": "KM 134+100",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-12": {
+        "km": "KM 146+800",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-13": {
+        "km": "KM 158+300",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-14": {
+        "km": "KM 166+700",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-15": {
+        "km": "KM 171+200",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-16": {
+        "km": "KM 175+400",
+        "sentido": "Sul",
+        "status": "online",
+    },
+    "CAM-17": {
+        "km": "KM 178+100",
+        "sentido": "Norte",
+        "status": "online",
+    },
+    "CAM-18": {
+        "km": "KM 179+600",
+        "sentido": "Sul",
+        "status": "offline",
     },
 }
 
 # ============================================================
-# FONTES DAS CÂMERAS
+# RTSP
 # ============================================================
 #
-# Para testar:
-# CAM-001 pode usar a webcam do computador com 0.
+# Quando tiver as câmeras reais, coloque os endereços aqui.
 #
-# Para câmera IP/RTSP:
+# Exemplo:
 #
-# "rtsp://usuario:senha@192.168.1.100:554/stream"
+# "CAM-01":
+#     "rtsp://usuario:senha@192.168.1.100:554/stream"
 #
 # ============================================================
 
-VIDEO_SOURCES = {
-    "CAM-001": 0,
-    "CAM-002": None,
-    "CAM-003": None,
-    "CAM-004": None,
+RTSP_URLS = {
+    camera_id: ""
+    for camera_id in CAMERAS
 }
 
-VIDEO_DIR = Path("videos")
-VIDEO_DIR.mkdir(exist_ok=True)
 
-STATUS_NORMAL = "🟢 NORMAL"
-STATUS_ATENCAO = "🟡 ATENÇÃO"
-STATUS_CRITICO = "🔴 CRÍTICO"
+# ============================================================
+# DADOS DOS SENSORES
+# ============================================================
+
+def dados_sensores(sensor_index):
+
+    """
+    Dados DEMONSTRATIVOS.
+
+    Futuramente substituir por MQTT/API
+    dos sensores reais.
+    """
+
+    temperatura = (
+        23.5
+        + (sensor_index % 5) * 0.8
+    )
+
+    umidade_solo = (
+        48
+        + (sensor_index * 3) % 35
+    )
+
+    chuva = (
+        0.0
+        if sensor_index % 4
+        else 2.4
+    )
+
+    vento = (
+        8
+        + (sensor_index % 9)
+    )
+
+    return {
+        "temperatura": temperatura,
+        "umidade_solo": umidade_solo,
+        "chuva": chuva,
+        "vento": vento,
+    }
 
 
 # ============================================================
 # VISÃO COMPUTACIONAL
 # ============================================================
 
-def analisar_vegetacao(frame):
+def dados_visao(camera_index):
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    """
+    Protótipo.
 
-    # Faixa inicial para detectar vegetação
-    lower = np.array([25, 35, 30])
-    upper = np.array([95, 255, 255])
+    Aqui futuramente entra o resultado
+    real da visão computacional.
+    """
 
-    mascara = cv2.inRange(
-        hsv,
-        lower,
-        upper
+    altura = (
+        25
+        + (camera_index * 7) % 60
     )
-
-    kernel = np.ones(
-        (5, 5),
-        np.uint8
-    )
-
-    mascara = cv2.morphologyEx(
-        mascara,
-        cv2.MORPH_OPEN,
-        kernel
-    )
-
-    mascara = cv2.morphologyEx(
-        mascara,
-        cv2.MORPH_CLOSE,
-        kernel
-    )
-
-    # ========================================================
-    # COBERTURA VEGETAL
-    # ========================================================
 
     cobertura = (
-        np.count_nonzero(mascara)
-        / mascara.size
-        * 100
+        92
+        - (camera_index * 3) % 35
     )
 
-    resultado = frame.copy()
+    if altura >= 70:
 
-    # ========================================================
-    # CONTORNOS
-    # ========================================================
+        status = "CRÍTICO"
 
-    contornos, _ = cv2.findContours(
-        mascara,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
+    elif altura >= 50:
+
+        status = "ATENÇÃO"
+
+    else:
+
+        status = "NORMAL"
+
+    return {
+        "altura": float(altura),
+        "cobertura": float(cobertura),
+        "status": status,
+    }
+
+
+# ============================================================
+# MACHINE LEARNING
+# ============================================================
+
+def dados_ia(
+    camera_index,
+    sensor,
+):
+
+    """
+    PROTÓTIPO da camada preditiva.
+
+    Não é um modelo treinado.
+
+    Aqui futuramente entra o modelo
+    de Machine Learning real.
+    """
+
+    crescimento = (
+        2.0
+        + sensor["temperatura"] * 0.10
+        + sensor["umidade_solo"] * 0.015
+        + camera_index * 0.08
     )
 
-    maior_area = 0
-    maior_contorno = None
+    crescimento = round(
+        crescimento,
+        1
+    )
 
-    for contorno in contornos:
+    if crescimento > 7:
 
-        area = cv2.contourArea(contorno)
+        dias_corte = 3
 
-        if area > maior_area:
+    elif crescimento > 5:
 
-            maior_area = area
-            maior_contorno = contorno
+        dias_corte = 5
 
-    altura_px = 0
+    else:
 
-    # ========================================================
-    # DETECÇÃO DA VEGETAÇÃO
-    # ========================================================
+        dias_corte = 7
 
-    if (
-        maior_contorno is not None
-        and maior_area > 500
+    confianca = min(
+        97,
+        max(
+            75,
+            82 + camera_index % 15
+        ),
+    )
+
+    data_corte = (
+        datetime.now()
+        + timedelta(
+            days=dias_corte
+        )
+    )
+
+    return {
+        "crescimento": crescimento,
+        "dias_corte": dias_corte,
+        "confianca": confianca,
+        "data_corte": data_corte,
+    }
+
+
+# ============================================================
+# IMAGEM DEMONSTRATIVA DA CÂMERA
+# ============================================================
+
+def gerar_camera_demo(
+    index,
+    altura,
+):
+
+    frame = np.zeros(
+        (420, 700, 3),
+        dtype=np.uint8,
+    )
+
+    # Céu
+    frame[:245] = (
+        195,
+        215,
+        230,
+    )
+
+    # Solo
+    frame[245:] = (
+        52,
+        92,
+        42,
+    )
+
+    rng = np.random.default_rng(
+        500 + index
+    )
+
+    quantidade = int(
+        80 + altura * 2
+    )
+
+    for _ in range(
+        quantidade
     ):
 
-        x, y, w, h = cv2.boundingRect(
-            maior_contorno
+        x = int(
+            rng.integers(
+                0,
+                700,
+            )
         )
 
-        altura_px = h
-
-        cv2.rectangle(
-            resultado,
-            (x, y),
-            (x + w, y + h),
-            (0, 255, 0),
-            3
+        base = int(
+            rng.integers(
+                275,
+                420,
+            )
         )
 
-        cv2.putText(
-            resultado,
-            "VEGETACAO",
-            (x, max(30, y - 10)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
+        h = int(
+            rng.integers(
+                max(
+                    10,
+                    int(
+                        altura * 0.4
+                    ),
+                ),
+                max(
+                    20,
+                    int(
+                        altura * 1.4
+                    ),
+                ),
+            )
         )
 
-    # ========================================================
-    # CALIBRAÇÃO
-    # ========================================================
-    #
-    # APENAS DEMONSTRATIVO.
-    #
-    # Na versão real:
-    #
-    # pixels_por_cm
-    #
-    # virá da calibração da câmera.
-    #
-    # ========================================================
-
-    pixels_por_cm = 8.0
-
-    if altura_px > 0:
-
-        altura_cm = (
-            altura_px
-            / pixels_por_cm
+        cv2.line(
+            frame,
+            (x, base),
+            (
+                x
+                + int(
+                    rng.integers(
+                        -8,
+                        9,
+                    )
+                ),
+                base - h,
+            ),
+            (
+                35,
+                145,
+                45,
+            ),
+            2,
         )
 
-    else:
+    cv2.putText(
+        frame,
+        "CAMERA - DEMONSTRACAO",
+        (20, 35),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (
+            255,
+            255,
+            255,
+        ),
+        2,
+    )
 
-        altura_cm = 0
-
-    # ========================================================
-    # STATUS
-    # ========================================================
-
-    if altura_cm >= 80:
-
-        status = STATUS_CRITICO
-
-    elif altura_cm >= 50:
-
-        status = STATUS_ATENCAO
-
-    else:
-
-        status = STATUS_NORMAL
-
-    return (
-        resultado,
-        cobertura,
-        altura_cm,
-        status,
+    return cv2.cvtColor(
+        frame,
+        cv2.COLOR_BGR2RGB,
     )
 
 
 # ============================================================
-# CAPTURA DA CÂMERA
+# RTSP
 # ============================================================
 
-def obter_frame(camera_id):
+def obter_frame_rtsp(
+    camera_id
+):
 
-    source = VIDEO_SOURCES[camera_id]
-
-    # --------------------------------------------------------
-    # Procura vídeo local
-    # --------------------------------------------------------
-
-    video_file = (
-        VIDEO_DIR
-        / f"{camera_id.lower().replace('-', '')}.mp4"
+    url = RTSP_URLS.get(
+        camera_id,
+        "",
     )
 
-    if video_file.exists():
-
-        source = str(video_file)
-
-    # --------------------------------------------------------
-    # Sem câmera configurada
-    # --------------------------------------------------------
-
-    if source is None:
+    if not url:
 
         return None
 
-    # --------------------------------------------------------
-    # Abre câmera
-    # --------------------------------------------------------
-
     cap = cv2.VideoCapture(
-        source
+        url
     )
 
     if not cap.isOpened():
@@ -279,121 +434,10 @@ def obter_frame(camera_id):
 
         return None
 
-    return frame
-
-
-# ============================================================
-# IMAGEM DEMONSTRATIVA
-# ============================================================
-
-def gerar_frame_demo(camera_index):
-
-    frame = np.zeros(
-        (480, 720, 3),
-        dtype=np.uint8
-    )
-
-    # Céu
-    frame[:280] = (
-        210,
-        225,
-        235
-    )
-
-    # Solo
-    frame[280:] = (
-        55,
-        95,
-        45
-    )
-
-    # Vegetação fictícia
-    rng = np.random.default_rng(
-        camera_index + 100
-    )
-
-    for _ in range(120):
-
-        x = int(
-            rng.integers(
-                0,
-                720
-            )
-        )
-
-        base_y = int(
-            rng.integers(
-                300,
-                460
-            )
-        )
-
-        altura = int(
-            rng.integers(
-                15,
-                100
-            )
-        )
-
-        cv2.line(
-            frame,
-            (x, base_y),
-            (
-                x + int(
-                    rng.integers(
-                        -8,
-                        9
-                    )
-                ),
-                base_y - altura,
-            ),
-            (40, 150, 45),
-            2
-        )
-
-    cv2.putText(
+    return cv2.cvtColor(
         frame,
-        "STREAM DEMONSTRATIVO",
-        (20, 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (255, 255, 255),
-        2
+        cv2.COLOR_BGR2RGB,
     )
-
-    return frame
-
-
-# ============================================================
-# DADOS AMBIENTAIS
-# ============================================================
-
-def dados_ambientais(index):
-
-    # SIMULAÇÃO
-    #
-    # Depois substituir por:
-    #
-    # API meteorológica
-    # sensor IoT
-    # estação meteorológica
-    #
-
-    return {
-
-        "temperatura":
-            24.5 + index * 0.8,
-
-        "umidade":
-            67 + index * 2,
-
-        "vento":
-            11 + index,
-
-        "chuva":
-            0.0 if index % 3 else 1.2,
-
-    }
 
 
 # ============================================================
@@ -402,59 +446,56 @@ def dados_ambientais(index):
 
 with st.sidebar:
 
-    st.header(
-        "GreenGuard"
+    st.title(
+        "🌱 GreenSense"
     )
 
     st.caption(
-        "Monitoramento de vegetação — Motiva"
+        "Monitoramento inteligente"
     )
 
     st.divider()
 
-    cameras_ativas = st.multiselect(
+    modo_demo = st.toggle(
+        "Modo demonstração",
+        value=True,
+    )
 
+    intervalo = st.slider(
+        "Atualização",
+        min_value=1,
+        max_value=10,
+        value=3,
+    )
+
+    st.divider()
+
+    cameras_selecionadas = st.multiselect(
         "Câmeras exibidas",
-
-        list(CAMERAS.keys()),
-
-        default=list(
+        list(
             CAMERAS.keys()
         ),
-    )
-
-    atualizar = st.slider(
-
-        "Intervalo de atualização",
-
-        min_value=1,
-
-        max_value=10,
-
-        value=2,
-    )
-
-    usar_demo = st.toggle(
-
-        "Usar imagens demonstrativas",
-
-        value=True,
-
-        help=(
-            "Ative enquanto "
-            "as câmeras ainda "
-            "não estiverem conectadas."
-        ),
+        default=list(
+            CAMERAS.keys()
+        )[:4],
     )
 
     st.divider()
 
     st.subheader(
-        "🔌 Conexão"
+        "Conexões"
     )
 
     st.success(
-        "Sistema online"
+        "Sensores: preparado para MQTT"
+    )
+
+    st.success(
+        "Câmeras: preparado para RTSP"
+    )
+
+    st.info(
+        "IA: preparado para modelo ML"
     )
 
 
@@ -463,265 +504,328 @@ with st.sidebar:
 # ============================================================
 
 st.title(
-    "GreenGuard"
+    "🌱 GreenSense"
 )
 
 st.caption(
-    "Central de Monitoramento de Vegetação — Motiva"
+    "Sistema de Monitoramento Inteligente de Vegetação"
 )
 
-
-# ============================================================
-# INDICADORES GERAIS
-# ============================================================
-
-h1, h2, h3, h4 = st.columns(4)
-
-h1.metric(
-    "Câmeras",
-    f"{len(cameras_ativas)}/{len(CAMERAS)}"
-)
-
-h2.metric(
-    "🟢 Normais",
-    "3"
-)
-
-h3.metric(
-    "🟡 Atenção",
-    "1"
-)
-
-h4.metric(
-    "🔴 Alertas",
-    "0"
+st.markdown(
+    """
+    **Monitoramento preditivo •
+    Visão Computacional •
+    IoT •
+    Machine Learning**
+    """
 )
 
 st.divider()
 
 
 # ============================================================
-# VERIFICAÇÃO
+# INDICADORES GERAIS
 # ============================================================
 
-if not cameras_ativas:
+camera_online = sum(
+    1
+    for camera in CAMERAS.values()
+    if camera["status"] == "online"
+)
+
+k1, k2, k3, k4, k5 = st.columns(5)
+
+k1.metric(
+    "📹 Câmeras",
+    f"{camera_online}/{TOTAL_CAMERAS}",
+)
+
+k2.metric(
+    "📡 Sensores IoT",
+    f"{TOTAL_SENSORS}/{TOTAL_SENSORS}",
+)
+
+k3.metric(
+    "🛣️ Trecho monitorado",
+    f"{TOTAL_KM} km",
+)
+
+k4.metric(
+    "⚠️ Alertas",
+    "3",
+)
+
+k5.metric(
+    "🤖 Confiança IA",
+    "91%",
+)
+
+st.divider()
+
+
+# ============================================================
+# CÂMERAS
+# ============================================================
+
+st.header(
+    "📹 Monitoramento das câmeras"
+)
+
+if not cameras_selecionadas:
 
     st.warning(
         "Selecione pelo menos "
-        "uma câmera no menu lateral."
+        "uma câmera."
     )
 
-    st.stop()
+else:
 
-
-# ============================================================
-# CARDS DAS CÂMERAS
-# ============================================================
-
-for linha_inicio in range(
-    0,
-    len(cameras_ativas),
-    2
-):
-
-    linha = cameras_ativas[
-        linha_inicio:
-        linha_inicio + 2
-    ]
-
-    cols = st.columns(2)
-
-    for col, camera_id in zip(
-        cols,
-        linha
+    for inicio in range(
+        0,
+        len(
+            cameras_selecionadas
+        ),
+        2,
     ):
 
-        info = CAMERAS[
-            camera_id
+        linha = cameras_selecionadas[
+            inicio:inicio + 2
         ]
 
-        index = list(
-            CAMERAS.keys()
-        ).index(
-            camera_id
+        colunas = st.columns(
+            2
         )
 
-        ambiente = dados_ambientais(
-            index
-        )
+        for coluna, camera_id in zip(
+            colunas,
+            linha,
+        ):
 
-        with col:
-
-            st.subheader(
-                f" {info['nome']} — {camera_id}"
+            camera_index = list(
+                CAMERAS.keys()
+            ).index(
+                camera_id
             )
 
-            st.caption(
-                f"{info['rodovia']} • "
-                f"KM {info['km']} • "
-                f"Sentido {info['sentido']}"
+            camera = CAMERAS[
+                camera_id
+            ]
+
+            sensor = dados_sensores(
+                camera_index
             )
 
-            # ------------------------------------------------
-            # CAPTURA
-            # ------------------------------------------------
+            visao = dados_visao(
+                camera_index
+            )
 
-            frame = None
+            ia = dados_ia(
+                camera_index,
+                sensor,
+            )
 
-            if not usar_demo:
+            with coluna:
 
-                frame = obter_frame(
-                    camera_id
+                # ============================================
+                # IDENTIFICAÇÃO
+                # ============================================
+
+                st.subheader(
+                    f"📍 {camera_id}"
                 )
 
-            # ------------------------------------------------
-            # DEMO
-            # ------------------------------------------------
+                st.caption(
+                    f"{camera['km']} • "
+                    f"Sentido {camera['sentido']}"
+                )
 
-            if frame is None:
+                # ============================================
+                # IMAGEM
+                # ============================================
 
-                if usar_demo:
+                frame = None
 
-                    frame = gerar_frame_demo(
-                        index
+                if not modo_demo:
+
+                    frame = obter_frame_rtsp(
+                        camera_id
                     )
 
-                    online = True
+                if frame is None:
 
-                else:
-
-                    online = False
-
-            else:
-
-                online = True
-
-            # ------------------------------------------------
-            # ONLINE
-            # ------------------------------------------------
-
-            if online:
-
-                (
-                    resultado,
-                    cobertura,
-                    altura,
-                    status,
-                ) = analisar_vegetacao(
-                    frame
-                )
-
-                resultado_rgb = cv2.cvtColor(
-                    resultado,
-                    cv2.COLOR_BGR2RGB
-                )
-
-                # ====================================================
-                # IMAGEM DA CÂMERA
-                # ====================================================
+                    frame = gerar_camera_demo(
+                        camera_index,
+                        visao["altura"],
+                    )
 
                 st.image(
-                    resultado_rgb,
-                    use_container_width=True
+                    frame,
+                    use_container_width=True,
                 )
 
-                # ====================================================
-                # STATUS DA VEGETAÇÃO
-                # ====================================================
+                # ============================================
+                # STATUS
+                # ============================================
 
-                if status == STATUS_CRITICO:
+                status = visao[
+                    "status"
+                ]
+
+                if status == "CRÍTICO":
 
                     st.error(
-                        f"Status da vegetação: {status}"
+                        "🔴 VEGETAÇÃO CRÍTICA"
                     )
 
-                elif status == STATUS_ATENCAO:
+                elif status == "ATENÇÃO":
 
                     st.warning(
-                        f"Status da vegetação: {status}"
+                        "🟡 ATENÇÃO — crescimento elevado"
                     )
 
                 else:
 
                     st.success(
-                        f"Status da vegetação: {status}"
+                        "🟢 VEGETAÇÃO NORMAL"
                     )
 
-                # ====================================================
-                # DADOS DA VEGETAÇÃO
-                # ====================================================
+                # ============================================
+                # VISÃO COMPUTACIONAL
+                # ============================================
 
-                m1, m2 = st.columns(2)
+                st.markdown(
+                    "**🌱 Análise da vegetação**"
+                )
 
-                with m1:
+                v1, v2, v3 = st.columns(
+                    3
+                )
 
-                    st.metric(
-                        "Altura",
-                        f"{altura:.1f} cm"
-                    )
+                v1.metric(
+                    "Altura",
+                    f"{visao['altura']:.1f} cm",
+                )
 
-                with m2:
+                v2.metric(
+                    "Cobertura",
+                    f"{visao['cobertura']:.1f}%",
+                )
 
-                    st.metric(
-                        "Cobertura",
-                        f"{cobertura:.1f}%"
-                    )
+                v3.metric(
+                    "Local",
+                    camera["km"],
+                )
 
-                # ====================================================
-                # DADOS AMBIENTAIS
-                # ====================================================
+                # ============================================
+                # SENSORES
+                # ============================================
 
-                e1, e2, e3, e4 = st.columns(4)
+                st.markdown(
+                    "**📡 Dados dos sensores IoT**"
+                )
 
-                with e1:
+                s1, s2, s3, s4 = st.columns(
+                    4
+                )
 
-                    st.metric(
-                        "Temperatura",
-                        f"{ambiente['temperatura']:.1f} °C"
-                    )
+                s1.metric(
+                    "🌡️ Temperatura",
+                    f"{sensor['temperatura']:.1f} °C",
+                )
 
-                with e2:
+                s2.metric(
+                    "💧 Umidade solo",
+                    f"{sensor['umidade_solo']}%",
+                )
 
-                    st.metric(
-                        "Umidade",
-                        f"{ambiente['umidade']}%"
-                    )
+                s3.metric(
+                    "🌧️ Chuva",
+                    f"{sensor['chuva']:.1f} mm",
+                )
 
-                with e3:
+                s4.metric(
+                    "💨 Vento",
+                    f"{sensor['vento']} km/h",
+                )
 
-                    st.metric(
-                        "Vento",
-                        f"{ambiente['vento']} km/h"
-                    )
+                # ============================================
+                # IA
+                # ============================================
 
-                with e4:
+                st.markdown(
+                    "**🤖 Previsão do modelo**"
+                )
 
-                    st.metric(
-                        "Chuva",
-                        f"{ambiente['chuva']:.1f} mm"
-                    )
+                p1, p2, p3 = st.columns(
+                    3
+                )
+
+                p1.metric(
+                    "Crescimento",
+                    f"{ia['crescimento']} cm/dia",
+                )
+
+                p2.metric(
+                    "Próximo corte",
+                    f"{ia['dias_corte']} dias",
+                )
+
+                p3.metric(
+                    "Confiança",
+                    f"{ia['confianca']}%",
+                )
 
                 st.caption(
-                    "Última análise: "
-                    + datetime.now().strftime(
-                        "%d/%m/%Y %H:%M:%S"
+                    "Corte previsto para "
+                    + ia[
+                        "data_corte"
+                    ].strftime(
+                        "%d/%m/%Y"
                     )
                 )
 
-            # ------------------------------------------------
-            # OFFLINE
-            # ------------------------------------------------
 
-            else:
+# ============================================================
+# MAPA
+# ============================================================
 
-                st.error(
-                    "Câmera offline"
-                )
+st.divider()
 
-                st.info(
-                    "Configure o endereço RTSP "
-                    "da câmera."
-                )
+st.header(
+    "🗺️ Pontos de monitoramento"
+)
+
+mapa = pd.DataFrame(
+    {
+        "latitude": [
+            -23.45,
+            -23.47,
+            -23.49,
+            -23.51,
+            -23.53,
+            -23.55,
+            -23.57,
+            -23.59,
+        ],
+        "longitude": [
+            -46.65,
+            -46.67,
+            -46.69,
+            -46.71,
+            -46.73,
+            -46.75,
+            -46.77,
+            -46.79,
+        ],
+    }
+)
+
+st.map(
+    mapa,
+    latitude="latitude",
+    longitude="longitude",
+    size=30,
+)
 
 
 # ============================================================
@@ -731,108 +835,136 @@ for linha_inicio in range(
 st.divider()
 
 st.header(
-    "Alertas"
+    "🚨 Central de alertas"
 )
 
-alertas = [
+alertas = pd.DataFrame(
+    [
+        {
+            "Prioridade": "🔴 CRÍTICO",
+            "Ponto": "CAM-11",
+            "Local": "KM 134+100",
+            "Evento": "Vegetação acima do limite",
+            "Ação": "Programar manutenção",
+        },
+        {
+            "Prioridade": "🟡 ATENÇÃO",
+            "Ponto": "CAM-04",
+            "Local": "KM 041+100",
+            "Evento": "Crescimento acelerado",
+            "Ação": "Monitorar",
+        },
+        {
+            "Prioridade": "🟡 ATENÇÃO",
+            "Ponto": "CAM-15",
+            "Local": "KM 171+200",
+            "Evento": "Baixa cobertura vegetal",
+            "Ação": "Investigar",
+        },
+    ]
+)
 
-    {
-        "camera": "CAM-002",
-        "tipo": "Altura elevada",
-        "descricao":
-            "Vegetação acima do limite configurado.",
-        "prioridade":
-            "ATENÇÃO",
-    },
-
-    {
-        "camera": "CAM-004",
-        "tipo":
-            "Cobertura reduzida",
-        "descricao":
-            "Possível alteração na cobertura vegetal.",
-        "prioridade":
-            "MONITORAR",
-    },
-
-]
-
-
-for alerta in alertas:
-
-    with st.container(
-        border=True
-    ):
-
-        a, b, c = st.columns(
-            [1, 2, 3]
-        )
-
-        with a:
-
-            st.write(
-                f"**{alerta['camera']}**"
-            )
-
-        with b:
-
-            st.write(
-                f"**{alerta['tipo']}**"
-            )
-
-        with c:
-
-            st.write(
-                alerta["descricao"]
-            )
+st.dataframe(
+    alertas,
+    use_container_width=True,
+    hide_index=True,
+)
 
 
 # ============================================================
-# RESUMO
+# HISTÓRICO
 # ============================================================
 
 st.divider()
 
 st.header(
-    "Resumo operacional"
+    "📈 Histórico"
 )
 
-r1, r2, r3, r4 = st.columns(4)
-
-r1.metric(
-    "Altura média",
-    "42.8 cm"
+historico = pd.DataFrame(
+    {
+        "Dia": [
+            "06/08",
+            "07/08",
+            "08/08",
+            "09/08",
+            "10/08",
+            "11/08",
+            "12/08",
+        ],
+        "Altura média (cm)": [
+            35,
+            36,
+            38,
+            40,
+            42,
+            43,
+            45,
+        ],
+        "Cobertura (%)": [
+            91,
+            89,
+            88,
+            86,
+            85,
+            83,
+            81,
+        ],
+    }
 )
 
-r2.metric(
-    "Cobertura média",
-    "81.4%"
+c1, c2 = st.columns(
+    2
 )
 
-r3.metric(
-    "Temperatura média",
-    "25.7 °C"
-)
+with c1:
 
-r4.metric(
-    "Pontos monitorados",
-    len(cameras_ativas)
-)
+    st.markdown(
+        "**🌱 Altura média**"
+    )
+
+    st.line_chart(
+        historico.set_index(
+            "Dia"
+        )[
+            "Altura média (cm)"
+        ]
+    )
+
+with c2:
+
+    st.markdown(
+        "**🌿 Cobertura vegetal**"
+    )
+
+    st.line_chart(
+        historico.set_index(
+            "Dia"
+        )[
+            "Cobertura (%)"
+        ]
+    )
+
+
+# ============================================================
+# RODAPÉ
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "PROTÓTIPO — dados ambientais e "
-    "imagens demonstrativas são simulados."
+    "GreenSense — Protótipo de interface. "
+    "Dados demonstrativos preparados para "
+    "integração com RTSP, MQTT e Machine Learning."
 )
 
 
 # ============================================================
-# ATUALIZAÇÃO AUTOMÁTICA
+# ATUALIZAÇÃO
 # ============================================================
 
 time.sleep(
-    atualizar
+    intervalo
 )
 
 st.rerun()

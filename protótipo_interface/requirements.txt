@@ -1,4 +1,6 @@
 streamlit
-opencv-python
+pandas
 numpy
+opencv-python
+requests
 Pillow

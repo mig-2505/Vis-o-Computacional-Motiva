@@ -1,6 +1,8 @@
-streamlit
-pandas
-numpy
-opencv-python
-requests
+streamlit>=1.50
+opencv-python-headless
+numpy>=1.26
 Pillow
+pandas>=2.0
+folium>=0.15
+streamlit-folium>=0.20
+requests

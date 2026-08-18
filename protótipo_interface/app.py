@@ -1,970 +1,945 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
+import os
+import sys
+import glob
+import hashlib
+from datetime import datetime
+
 import cv2
-from datetime import datetime, timedelta
-import time
+import numpy as np
+import pandas as pd
+import streamlit as st
+import folium
+from streamlit_folium import st_folium
 
 # ============================================================
-# GREEN SENSE — MONITORAMENTO INTELIGENTE DE VEGETAÇÃO
+# GREENSENSE — CENTRAL DE INTELIGÊNCIA OPERACIONAL
 # ============================================================
 
 st.set_page_config(
     page_title="GreenSense | Motiva",
     page_icon="🌱",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ============================================================
-# CONFIGURAÇÕES DO PROJETO
-# ============================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FOTOS_DIR = os.path.join(BASE_DIR, "fotos_medicoes")
+os.makedirs(FOTOS_DIR, exist_ok=True)
 
-TOTAL_CAMERAS = 18
-TOTAL_SENSORS = 36
-TOTAL_KM = 180
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-# ============================================================
-# CÂMERAS
-# ============================================================
-
-CAMERAS = {
-    "CAM-01": {
-        "km": "KM 001+200",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-02": {
-        "km": "KM 014+800",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-03": {
-        "km": "KM 027+500",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-04": {
-        "km": "KM 041+100",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-05": {
-        "km": "KM 055+700",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-06": {
-        "km": "KM 068+300",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-07": {
-        "km": "KM 081+900",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-08": {
-        "km": "KM 095+400",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-09": {
-        "km": "KM 108+200",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-10": {
-        "km": "KM 121+600",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-11": {
-        "km": "KM 134+100",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-12": {
-        "km": "KM 146+800",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-13": {
-        "km": "KM 158+300",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-14": {
-        "km": "KM 166+700",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-15": {
-        "km": "KM 171+200",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-16": {
-        "km": "KM 175+400",
-        "sentido": "Sul",
-        "status": "online",
-    },
-    "CAM-17": {
-        "km": "KM 178+100",
-        "sentido": "Norte",
-        "status": "online",
-    },
-    "CAM-18": {
-        "km": "KM 179+600",
-        "sentido": "Sul",
-        "status": "offline",
-    },
-}
+from protótipo_interface.medir_grama import (
+    REFERENCIA_LARGURA_CM,
+    HSV_REF_MIN,
+    HSV_REF_MAX,
+    HSV_GRAMA_MIN,
+    HSV_GRAMA_MAX,
+    criar_mascara,
+    encontrar_maior_contorno,
+    formatar_medida,
+)
+import geo_data
+import priority
+import climate
+import historico
 
 # ============================================================
-# RTSP
-# ============================================================
-#
-# Quando tiver as câmeras reais, coloque os endereços aqui.
-#
-# Exemplo:
-#
-# "CAM-01":
-#     "rtsp://usuario:senha@192.168.1.100:554/stream"
-#
+# ESTILO RESPONSIVO
 # ============================================================
 
-RTSP_URLS = {
-    camera_id: ""
-    for camera_id in CAMERAS
-}
-
-
-# ============================================================
-# DADOS DOS SENSORES
-# ============================================================
-
-def dados_sensores(sensor_index):
-
+st.markdown(
     """
-    Dados DEMONSTRATIVOS.
-
-    Futuramente substituir por MQTT/API
-    dos sensores reais.
-    """
-
-    temperatura = (
-        23.5
-        + (sensor_index % 5) * 0.8
-    )
-
-    umidade_solo = (
-        48
-        + (sensor_index * 3) % 35
-    )
-
-    chuva = (
-        0.0
-        if sensor_index % 4
-        else 2.4
-    )
-
-    vento = (
-        8
-        + (sensor_index % 9)
-    )
-
-    return {
-        "temperatura": temperatura,
-        "umidade_solo": umidade_solo,
-        "chuva": chuva,
-        "vento": vento,
+    <style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
     }
-
+    div[data-testid="stMetricValue"] { font-size: 1.35rem; }
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: white;
+    }
+    @media (max-width: 700px) {
+        .block-container { padding-left: .8rem; padding-right: .8rem; }
+        div[data-testid="stMetricValue"] { font-size: 1.1rem; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # VISÃO COMPUTACIONAL
 # ============================================================
 
-def dados_visao(camera_index):
-
-    """
-    Protótipo.
-
-    Aqui futuramente entra o resultado
-    real da visão computacional.
-    """
-
-    altura = (
-        25
-        + (camera_index * 7) % 60
-    )
-
-    cobertura = (
-        92
-        - (camera_index * 3) % 35
-    )
-
-    if altura >= 70:
-
-        status = "CRÍTICO"
-
-    elif altura >= 50:
-
-        status = "ATENÇÃO"
-
+def analisar_imagem_grama(caminho_ou_frame):
+    """Analisa caminho de imagem ou frame BGR do OpenCV."""
+    if isinstance(caminho_ou_frame, str):
+        frame = cv2.imread(caminho_ou_frame)
     else:
+        frame = caminho_ou_frame.copy()
 
-        status = "NORMAL"
+    if frame is None:
+        return {"ok": False, "erro": "Não foi possível abrir a imagem."}
 
-    return {
-        "altura": float(altura),
-        "cobertura": float(cobertura),
-        "status": status,
-    }
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
+    mascara_ref = criar_mascara(hsv, HSV_REF_MIN, HSV_REF_MAX)
+    mascara_grama = criar_mascara(hsv, HSV_GRAMA_MIN, HSV_GRAMA_MAX)
 
-# ============================================================
-# MACHINE LEARNING
-# ============================================================
+    contorno_ref = encontrar_maior_contorno(mascara_ref)
+    contorno_grama = encontrar_maior_contorno(mascara_grama)
 
-def dados_ia(
-    camera_index,
-    sensor,
-):
+    pixels_por_cm = None
 
-    """
-    PROTÓTIPO da camada preditiva.
-
-    Não é um modelo treinado.
-
-    Aqui futuramente entra o modelo
-    de Machine Learning real.
-    """
-
-    crescimento = (
-        2.0
-        + sensor["temperatura"] * 0.10
-        + sensor["umidade_solo"] * 0.015
-        + camera_index * 0.08
-    )
-
-    crescimento = round(
-        crescimento,
-        1
-    )
-
-    if crescimento > 7:
-
-        dias_corte = 3
-
-    elif crescimento > 5:
-
-        dias_corte = 5
-
-    else:
-
-        dias_corte = 7
-
-    confianca = min(
-        97,
-        max(
-            75,
-            82 + camera_index % 15
-        ),
-    )
-
-    data_corte = (
-        datetime.now()
-        + timedelta(
-            days=dias_corte
-        )
-    )
-
-    return {
-        "crescimento": crescimento,
-        "dias_corte": dias_corte,
-        "confianca": confianca,
-        "data_corte": data_corte,
-    }
-
-
-# ============================================================
-# IMAGEM DEMONSTRATIVA DA CÂMERA
-# ============================================================
-
-def gerar_camera_demo(
-    index,
-    altura,
-):
-
-    frame = np.zeros(
-        (420, 700, 3),
-        dtype=np.uint8,
-    )
-
-    # Céu
-    frame[:245] = (
-        195,
-        215,
-        230,
-    )
-
-    # Solo
-    frame[245:] = (
-        52,
-        92,
-        42,
-    )
-
-    rng = np.random.default_rng(
-        500 + index
-    )
-
-    quantidade = int(
-        80 + altura * 2
-    )
-
-    for _ in range(
-        quantidade
-    ):
-
-        x = int(
-            rng.integers(
-                0,
-                700,
-            )
-        )
-
-        base = int(
-            rng.integers(
-                275,
-                420,
-            )
-        )
-
-        h = int(
-            rng.integers(
-                max(
-                    10,
-                    int(
-                        altura * 0.4
-                    ),
-                ),
-                max(
-                    20,
-                    int(
-                        altura * 1.4
-                    ),
-                ),
-            )
-        )
-
-        cv2.line(
+    if contorno_ref is not None:
+        rx, ry, rw, rh = cv2.boundingRect(contorno_ref)
+        if rw > 0:
+            pixels_por_cm = rw / REFERENCIA_LARGURA_CM
+        cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), (255, 0, 0), 3)
+        cv2.putText(
             frame,
-            (x, base),
-            (
-                x
-                + int(
-                    rng.integers(
-                        -8,
-                        9,
-                    )
-                ),
-                base - h,
-            ),
-            (
-                35,
-                145,
-                45,
-            ),
+            f"Referencia ({REFERENCIA_LARGURA_CM:.0f} cm)",
+            (rx, max(25, ry - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 0, 0),
             2,
         )
 
-    cv2.putText(
-        frame,
-        "CAMERA - DEMONSTRACAO",
-        (20, 35),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.75,
-        (
-            255,
-            255,
-            255,
-        ),
-        2,
+    cobertura_pct = round(
+        100.0 * np.count_nonzero(mascara_grama) / mascara_grama.size, 1
     )
 
-    return cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2RGB,
-    )
+    largura_cm = None
+    altura_cm = None
+
+    if contorno_grama is not None:
+        gx, gy, gw, gh = cv2.boundingRect(contorno_grama)
+        cv2.rectangle(frame, (gx, gy), (gx + gw, gy + gh), (0, 200, 0), 3)
+
+        if pixels_por_cm:
+            largura_cm = round(gw / pixels_por_cm, 1)
+            altura_cm = round(gh / pixels_por_cm, 1)
+
+            texto = (
+                f"Largura: {formatar_medida(largura_cm)} | "
+                f"Altura: {formatar_medida(altura_cm)}"
+            )
+            cv2.putText(
+                frame,
+                texto,
+                (max(10, gx - 10), max(25, gy - 15)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.62,
+                (0, 200, 0),
+                2,
+            )
+    else:
+        cv2.putText(
+            frame,
+            "VEGETACAO NAO DETECTADA",
+            (20, 35),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.75,
+            (0, 0, 255),
+            2,
+        )
+
+    return {
+        "ok": True,
+        "pixels_por_cm": pixels_por_cm,
+        "largura_cm": largura_cm,
+        "altura_cm": altura_cm,
+        "cobertura_pct": cobertura_pct,
+        "mascara_ref": mascara_ref,
+        "mascara_grama": mascara_grama,
+        "imagem_anotada": cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+    }
+
+
+def analisar_bytes_imagem(data):
+    """Converte uma foto recebida do celular para OpenCV."""
+    if not data:
+        return {"ok": False, "erro": "Imagem vazia."}
+
+    array = np.frombuffer(data, dtype=np.uint8)
+    frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return {"ok": False, "erro": "O arquivo recebido não é uma imagem válida."}
+
+    return analisar_imagem_grama(frame)
+
+
+def sha256_bytes(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def listar_fotos_reais():
+    extensoes = ("*.png", "*.jpg", "*.jpeg", "*.JPG", "*.PNG", "*.JPEG")
+    arquivos = []
+    for ext in extensoes:
+        arquivos.extend(glob.glob(os.path.join(FOTOS_DIR, ext)))
+    return sorted(arquivos, key=os.path.getmtime, reverse=True)
+
+
+@st.cache_data(show_spinner=False)
+def analisar_foto_cache(caminho, mtime):
+    return analisar_imagem_grama(caminho)
+
+
+@st.cache_data(show_spinner=False, ttl=1800)
+def clima_cache(lat_round, lon_round):
+    return climate.obter_clima_atual(lat_round, lon_round)
+
+
+@st.cache_data(show_spinner=False)
+def carregar_geo():
+    return geo_data.carregar_dados_geograficos()
+
+
+def id_deterministico(texto, mod, offset=0):
+    h = int(hashlib.md5(texto.encode()).hexdigest(), 16)
+    return offset + (h % mod)
+
+
+def status_vegetacao(altura_cm):
+    if altura_cm is None:
+        return "SEM LEITURA"
+    if altura_cm >= 70:
+        return "CRÍTICO"
+    if altura_cm >= 50:
+        return "ATENÇÃO"
+    return "NORMAL"
 
 
 # ============================================================
-# RTSP
+# DADOS GEOGRÁFICOS
 # ============================================================
 
-def obter_frame_rtsp(
-    camera_id
-):
-
-    url = RTSP_URLS.get(
-        camera_id,
-        "",
-    )
-
-    if not url:
-
-        return None
-
-    cap = cv2.VideoCapture(
-        url
-    )
-
-    if not cap.isOpened():
-
-        return None
-
-    ok, frame = cap.read()
-
-    cap.release()
-
-    if not ok:
-
-        return None
-
-    return cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2RGB,
-    )
-
+geo = carregar_geo()
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
 with st.sidebar:
+    st.title("🌱 GreenSense")
+    st.caption("Central de Inteligência Operacional")
+    st.divider()
 
-    st.title(
-        "🌱 GreenSense"
-    )
+    if geo.fonte_real:
+        st.success(
+            f"Dados geográficos reais carregados "
+            f"({', '.join(geo.arquivos_usados)})"
+        )
+    else:
+        st.warning(
+            "Modo demonstração geográfico. Coloque os arquivos .KMZ/.KML "
+            "em `data/` para carregar as coordenadas reais."
+        )
 
     st.caption(
-        "Monitoramento inteligente"
+        f"{len(geo.marcos)} marcos de KM • "
+        f"{len(geo.areas_rocada)} áreas de roçada"
     )
 
     st.divider()
-
-    modo_demo = st.toggle(
-        "Modo demonstração",
-        value=True,
-    )
-
-    intervalo = st.slider(
-        "Atualização",
-        min_value=1,
-        max_value=10,
-        value=3,
-    )
-
-    st.divider()
-
-    cameras_selecionadas = st.multiselect(
-        "Câmeras exibidas",
-        list(
-            CAMERAS.keys()
-        ),
-        default=list(
-            CAMERAS.keys()
-        )[:4],
-    )
-
-    st.divider()
-
-    st.subheader(
-        "Conexões"
-    )
-
-    st.success(
-        "Sensores: preparado para MQTT"
-    )
-
-    st.success(
-        "Câmeras: preparado para RTSP"
-    )
+    st.subheader(" Medição")
 
     st.info(
-        "IA: preparado para modelo ML"
+        "No celular, use **Tirar foto** abaixo. "
+        "Se o navegador bloquear a câmera por estar em HTTP, use "
+        "**Enviar foto** ou abra o app por HTTPS."
     )
+
+    camera_upload = st.camera_input(
+        "Tirar foto com a câmera do celular",
+        help="Requer HTTPS no navegador quando acessado pela rede.",
+    )
+
+    arquivo_upload = st.file_uploader(
+        "Enviar foto",
+        type=["jpg", "jpeg", "png"],
+        help="Funciona mesmo em HTTP na rede local.",
+    )
+
+    fotos = listar_fotos_reais()
+    caminho_foto = None
+    foto_escolhida_nome = None
+    analise_upload = None
+    upload_id = None
+    fonte_upload = None
+
+    # Prioridade: câmera > upload de arquivo > foto já salva
+    if camera_upload is not None:
+        dados = camera_upload.getvalue()
+        upload_id = sha256_bytes(dados)
+        fonte_upload = "camera"
+        analise_upload = analisar_bytes_imagem(dados)
+
+        nome_salvo = f"celular_{upload_id[:16]}.jpg"
+        caminho_salvo = os.path.join(FOTOS_DIR, nome_salvo)
+        if not os.path.exists(caminho_salvo):
+            with open(caminho_salvo, "wb") as f:
+                f.write(dados)
+
+    elif arquivo_upload is not None:
+        dados = arquivo_upload.getvalue()
+        upload_id = sha256_bytes(dados)
+        fonte_upload = "upload"
+        analise_upload = analisar_bytes_imagem(dados)
+
+        extensao = os.path.splitext(arquivo_upload.name)[1].lower() or ".jpg"
+        nome_salvo = f"celular_{upload_id[:16]}{extensao}"
+        caminho_salvo = os.path.join(FOTOS_DIR, nome_salvo)
+        if not os.path.exists(caminho_salvo):
+            with open(caminho_salvo, "wb") as f:
+                f.write(dados)
+
+    elif fotos:
+        opcoes_fotos = [os.path.basename(f) for f in fotos]
+        foto_escolhida_nome = st.selectbox("Foto já salva", opcoes_fotos)
+        caminho_foto = os.path.join(FOTOS_DIR, foto_escolhida_nome)
+
+    marcos_labels = [m.km_label for m in geo.marcos] or ["—"]
+    ponto_associado = st.selectbox(
+        " Associar medição ao ponto/KM",
+        marcos_labels,
+        help="A medição fica vinculada a este marco no mapa e no histórico.",
+    )
+
+    mostrar_mascaras = st.toggle("Mostrar máscaras OpenCV", value=False)
+
+    usar_clima_real = st.toggle(
+        "Buscar clima real",
+        value=False,
+        help="Usa Open-Meteo para consultar temperatura, chuva, umidade e vento.",
+    )
+
+    st.divider()
+    with st.expander("⚙️ Pesos do Índice de Prioridade"):
+        pesos = {}
+        for chave, valor_padrao in priority.PESOS_PADRAO.items():
+            pesos[chave] = st.slider(
+                chave.replace("_", " ").title(),
+                0,
+                40,
+                valor_padrao,
+            )
+
+
+# ============================================================
+# ANÁLISE DA FOTO
+# ============================================================
+
+analise_foto = analise_upload
+
+if analise_foto is None and caminho_foto:
+    try:
+        analise_foto = analisar_foto_cache(
+            caminho_foto,
+            os.path.getmtime(caminho_foto),
+        )
+        if analise_foto.get("ok"):
+            with open(caminho_foto, "rb") as f:
+                upload_id = sha256_bytes(f.read())
+            fonte_upload = "arquivo"
+    except Exception as exc:
+        analise_foto = {"ok": False, "erro": str(exc)}
+
+# Registra a foto somente uma vez.
+if (
+    analise_foto
+    and analise_foto.get("ok")
+    and analise_foto.get("altura_cm") is not None
+    and upload_id
+):
+    historico.registrar_medicao(
+        ponto_associado,
+        analise_foto.get("altura_cm"),
+        analise_foto.get("cobertura_pct"),
+        analise_foto.get("largura_cm"),
+        fonte=fonte_upload or "foto",
+        medicao_id=upload_id,
+    )
+
+
+# ============================================================
+# PONTOS OPERACIONAIS
+# ============================================================
+
+def montar_pontos_operacionais():
+    pontos = []
+
+    for marco in geo.marcos:
+        pid = marco.km_label
+
+        eh_foto_real = (
+            pid == ponto_associado
+            and analise_foto
+            and analise_foto.get("ok")
+            and analise_foto.get("altura_cm") is not None
+        )
+
+        if eh_foto_real:
+            altura = analise_foto.get("altura_cm")
+            cobertura = analise_foto.get("cobertura_pct")
+            tendencia = historico.tendencia_cm(pid)
+            crescimento = max(tendencia, 0) if tendencia is not None else 1.5
+            fonte = "foto real"
+        else:
+            seed = id_deterministico(pid, 1000)
+            altura = 10 + (seed % 75)
+            cobertura = 20 + (seed % 70)
+            crescimento = 0.8 + (seed % 5) * 0.7
+            tendencia = None
+            fonte = "demonstração"
+
+        criticidade_local = marco.extra.get("criticidade")
+        try:
+            criticidade_local = (
+                float(criticidade_local)
+                if criticidade_local is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            criticidade_local = None
+
+        if criticidade_local is None:
+            criticidade_local = 30 + id_deterministico(pid + "loc", 60)
+
+        dist_rocada, area_prox = geo_data.distancia_area_rocada_mais_proxima(
+            marco.lat,
+            marco.lon,
+            geo.areas_rocada,
+        )
+
+        if usar_clima_real:
+            clima_info = clima_cache(round(marco.lat, 2), round(marco.lon, 2))
+        else:
+            seed_clima = id_deterministico(pid + "clima", 100)
+            clima_info = {
+                "ok": False,
+                "chuva_mm": (seed_clima % 15) / 2.0,
+                "umidade_pct": 40 + (seed_clima % 40),
+                "vento_kmh": 5 + (seed_clima % 20),
+                "temperatura_c": 20 + (seed_clima % 10),
+            }
+
+        resultado = priority.calcular_prioridade(
+            altura_cm=altura,
+            cobertura_pct=cobertura,
+            crescimento_cm_dia=crescimento,
+            criticidade_local=criticidade_local,
+            distancia_rocada_km=dist_rocada,
+            chuva_mm=clima_info.get("chuva_mm"),
+            umidade_pct=clima_info.get("umidade_pct"),
+            tendencia_historica_cm=tendencia,
+            pesos=pesos,
+        )
+
+        pontos.append(
+            {
+                "ponto_id": pid,
+                "marco": marco,
+                "altura_cm": altura,
+                "cobertura_pct": cobertura,
+                "crescimento_cm_dia": round(crescimento, 1),
+                "fonte": fonte,
+                "distancia_rocada_km": (
+                    round(dist_rocada, 2)
+                    if dist_rocada is not None
+                    else None
+                ),
+                "area_rocada_proxima": area_prox.nome if area_prox else None,
+                "clima": clima_info,
+                "resultado": resultado,
+            }
+        )
+
+    return pontos
+
+
+pontos_operacionais = montar_pontos_operacionais()
+pontos_ordenados = sorted(
+    pontos_operacionais,
+    key=lambda p: p["resultado"].indice,
+    reverse=True,
+)
 
 
 # ============================================================
 # CABEÇALHO
 # ============================================================
 
-st.title(
-    "🌱 GreenSense"
-)
+st.title("🌱 GreenSense")
+st.caption("Onde devemos mandar a equipe primeiro — e por quê.")
 
-st.caption(
-    "Sistema de Monitoramento Inteligente de Vegetação"
-)
-
-st.markdown(
-    """
-    **Monitoramento preditivo •
-    Visão Computacional •
-    IoT •
-    Machine Learning**
-    """
-)
-
-st.divider()
-
-
-# ============================================================
-# INDICADORES GERAIS
-# ============================================================
-
-camera_online = sum(
-    1
-    for camera in CAMERAS.values()
-    if camera["status"] == "online"
-)
-
-k1, k2, k3, k4, k5 = st.columns(5)
-
-k1.metric(
-    "📹 Câmeras",
-    f"{camera_online}/{TOTAL_CAMERAS}",
-)
-
-k2.metric(
-    "📡 Sensores IoT",
-    f"{TOTAL_SENSORS}/{TOTAL_SENSORS}",
-)
-
-k3.metric(
-    "🛣️ Trecho monitorado",
-    f"{TOTAL_KM} km",
-)
-
-k4.metric(
-    "⚠️ Alertas",
-    "3",
-)
-
-k5.metric(
-    "🤖 Confiança IA",
-    "91%",
-)
-
-st.divider()
-
-
-# ============================================================
-# CÂMERAS
-# ============================================================
-
-st.header(
-    "📹 Monitoramento das câmeras"
-)
-
-if not cameras_selecionadas:
-
-    st.warning(
-        "Selecione pelo menos "
-        "uma câmera."
+if analise_foto and analise_foto.get("ok") and upload_id:
+    st.success(
+        f" Foto recebida e associada a **{ponto_associado}**. "
+        "A medição real já foi considerada no índice."
     )
 
-else:
+tab_geral, tab_mapa, tab_ops, tab_analise, tab_historico, tab_sobre = st.tabs(
+    [
+        " Visão Geral",
+        " Mapa",
+        " Operações",
+        " Análise",
+        " Histórico",
+        " Sobre",
+    ]
+)
 
-    for inicio in range(
-        0,
-        len(
-            cameras_selecionadas
-        ),
-        2,
-    ):
 
-        linha = cameras_selecionadas[
-            inicio:inicio + 2
-        ]
+# ============================================================
+# VISÃO GERAL
+# ============================================================
 
-        colunas = st.columns(
-            2
+with tab_geral:
+    n_intervencao = sum(
+        p["resultado"].nivel == "Intervenção"
+        for p in pontos_operacionais
+    )
+    n_alta = sum(
+        p["resultado"].nivel == "Alta prioridade"
+        for p in pontos_operacionais
+    )
+    n_monitorar = sum(
+        p["resultado"].nivel == "Monitorar"
+        for p in pontos_operacionais
+    )
+    n_normal = sum(
+        p["resultado"].nivel == "Normal"
+        for p in pontos_operacionais
+    )
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Pontos", len(pontos_operacionais))
+    c2.metric(" Intervenção", n_intervencao)
+    c3.metric(" Alta", n_alta)
+    c4.metric(" Monitorar", n_monitorar)
+    c5.metric(" Normal", n_normal)
+
+    if not geo.fonte_real:
+        st.info(
+            "Os pontos geográficos estão em modo demonstração. "
+            "Adicione os arquivos reais em `data/`."
         )
 
-        for coluna, camera_id in zip(
-            colunas,
-            linha,
-        ):
+    st.divider()
+    st.subheader("Top 5 — atenção imediata")
 
-            camera_index = list(
-                CAMERAS.keys()
-            ).index(
-                camera_id
+    for p in pontos_ordenados[:5]:
+        r = p["resultado"]
+        col_a, col_b = st.columns([3, 1])
+
+        with col_a:
+            st.markdown(
+                f"<span class='badge' style='background:{r.cor}'>{r.nivel}</span> "
+                f"**{p['ponto_id']}** — "
+                f"{p['altura_cm']:.0f} cm de altura, "
+                f"{p['cobertura_pct']:.0f}% de cobertura",
+                unsafe_allow_html=True,
             )
 
-            camera = CAMERAS[
-                camera_id
-            ]
-
-            sensor = dados_sensores(
-                camera_index
-            )
-
-            visao = dados_visao(
-                camera_index
-            )
-
-            ia = dados_ia(
-                camera_index,
-                sensor,
-            )
-
-            with coluna:
-
-                # ============================================
-                # IDENTIFICAÇÃO
-                # ============================================
-
-                st.subheader(
-                    f"📍 {camera_id}"
-                )
-
-                st.caption(
-                    f"{camera['km']} • "
-                    f"Sentido {camera['sentido']}"
-                )
-
-                # ============================================
-                # IMAGEM
-                # ============================================
-
-                frame = None
-
-                if not modo_demo:
-
-                    frame = obter_frame_rtsp(
-                        camera_id
-                    )
-
-                if frame is None:
-
-                    frame = gerar_camera_demo(
-                        camera_index,
-                        visao["altura"],
-                    )
-
-                st.image(
-                    frame,
-                    use_container_width=True,
-                )
-
-                # ============================================
-                # STATUS
-                # ============================================
-
-                status = visao[
-                    "status"
-                ]
-
-                if status == "CRÍTICO":
-
-                    st.error(
-                        "🔴 VEGETAÇÃO CRÍTICA"
-                    )
-
-                elif status == "ATENÇÃO":
-
-                    st.warning(
-                        "🟡 ATENÇÃO — crescimento elevado"
-                    )
-
-                else:
-
-                    st.success(
-                        "🟢 VEGETAÇÃO NORMAL"
-                    )
-
-                # ============================================
-                # VISÃO COMPUTACIONAL
-                # ============================================
-
-                st.markdown(
-                    "**🌱 Análise da vegetação**"
-                )
-
-                v1, v2, v3 = st.columns(
-                    3
-                )
-
-                v1.metric(
-                    "Altura",
-                    f"{visao['altura']:.1f} cm",
-                )
-
-                v2.metric(
-                    "Cobertura",
-                    f"{visao['cobertura']:.1f}%",
-                )
-
-                v3.metric(
-                    "Local",
-                    camera["km"],
-                )
-
-                # ============================================
-                # SENSORES
-                # ============================================
-
-                st.markdown(
-                    "**📡 Dados dos sensores IoT**"
-                )
-
-                s1, s2, s3, s4 = st.columns(
-                    4
-                )
-
-                s1.metric(
-                    "🌡️ Temperatura",
-                    f"{sensor['temperatura']:.1f} °C",
-                )
-
-                s2.metric(
-                    "💧 Umidade solo",
-                    f"{sensor['umidade_solo']}%",
-                )
-
-                s3.metric(
-                    "🌧️ Chuva",
-                    f"{sensor['chuva']:.1f} mm",
-                )
-
-                s4.metric(
-                    "💨 Vento",
-                    f"{sensor['vento']} km/h",
-                )
-
-                # ============================================
-                # IA
-                # ============================================
-
-                st.markdown(
-                    "**🤖 Previsão do modelo**"
-                )
-
-                p1, p2, p3 = st.columns(
-                    3
-                )
-
-                p1.metric(
-                    "Crescimento",
-                    f"{ia['crescimento']} cm/dia",
-                )
-
-                p2.metric(
-                    "Próximo corte",
-                    f"{ia['dias_corte']} dias",
-                )
-
-                p3.metric(
-                    "Confiança",
-                    f"{ia['confianca']}%",
-                )
-
-                st.caption(
-                    "Corte previsto para "
-                    + ia[
-                        "data_corte"
-                    ].strftime(
-                        "%d/%m/%Y"
-                    )
-                )
+        with col_b:
+            st.metric("Índice", f"{r.indice:.0f}/100")
 
 
 # ============================================================
 # MAPA
 # ============================================================
 
-st.divider()
+with tab_mapa:
+    st.subheader(" Mapa operacional")
 
-st.header(
-    "🗺️ Pontos de monitoramento"
-)
+    if not geo.fonte_real:
+        st.warning("Coordenadas demonstrativas — adicione os KMZ/KML reais.")
 
-mapa = pd.DataFrame(
-    {
-        "latitude": [
-            -23.45,
-            -23.47,
-            -23.49,
-            -23.51,
-            -23.53,
-            -23.55,
-            -23.57,
-            -23.59,
-        ],
-        "longitude": [
-            -46.65,
-            -46.67,
-            -46.69,
-            -46.71,
-            -46.73,
-            -46.75,
-            -46.77,
-            -46.79,
-        ],
-    }
-)
+    if pontos_operacionais:
+        lat_centro = sum(p["marco"].lat for p in pontos_operacionais) / len(
+            pontos_operacionais
+        )
+        lon_centro = sum(p["marco"].lon for p in pontos_operacionais) / len(
+            pontos_operacionais
+        )
+    else:
+        lat_centro, lon_centro = -23.5, -46.7
 
-st.map(
-    mapa,
-    latitude="latitude",
-    longitude="longitude",
-    size=30,
-)
+    mapa = folium.Map(
+        location=[lat_centro, lon_centro],
+        zoom_start=10,
+        tiles="CartoDB positron",
+    )
+
+    for p in pontos_operacionais:
+        r = p["resultado"]
+
+        folium.CircleMarker(
+            location=[p["marco"].lat, p["marco"].lon],
+            radius=9,
+            color=r.cor,
+            fill=True,
+            fill_color=r.cor,
+            fill_opacity=0.85,
+            popup=folium.Popup(
+                f"<b>{p['ponto_id']}</b><br>"
+                f"Índice: {r.indice:.0f}/100 — {r.nivel}<br>"
+                f"Altura: {p['altura_cm']:.0f} cm<br>"
+                f"Fonte: {p['fonte']}",
+                max_width=260,
+            ),
+            tooltip=f"{p['ponto_id']} — {r.nivel} ({r.indice:.0f})",
+        ).add_to(mapa)
+
+    for area in geo.areas_rocada[:300]:
+        folium.CircleMarker(
+            location=[area.centroid_lat, area.centroid_lon],
+            radius=3,
+            color="#607d8b",
+            fill=True,
+            fill_opacity=0.5,
+            tooltip=f"Roçada: {area.nome}",
+        ).add_to(mapa)
+
+    st_folium(mapa, width=None, height=520, returned_objects=[])
+
+    st.markdown(
+        " Intervenção &nbsp;&nbsp;  Alta prioridade &nbsp;&nbsp; "
+        " Monitorar &nbsp;&nbsp;  Normal &nbsp;&nbsp; "
+        " Área de roçada"
+    )
 
 
 # ============================================================
-# ALERTAS
+# CENTRAL DE OPERAÇÕES
 # ============================================================
 
-st.divider()
+with tab_ops:
+    st.subheader(" Central de Operações")
 
-st.header(
-    "🚨 Central de alertas"
-)
+    ordenar_por = st.radio(
+        "Ordenar por",
+        ["Prioridade (recomendado)", "KM (rota sequencial)"],
+        horizontal=True,
+    )
 
-alertas = pd.DataFrame(
-    [
-        {
-            "Prioridade": "🔴 CRÍTICO",
-            "Ponto": "CAM-11",
-            "Local": "KM 134+100",
-            "Evento": "Vegetação acima do limite",
-            "Ação": "Programar manutenção",
-        },
-        {
-            "Prioridade": "🟡 ATENÇÃO",
-            "Ponto": "CAM-04",
-            "Local": "KM 041+100",
-            "Evento": "Crescimento acelerado",
-            "Ação": "Monitorar",
-        },
-        {
-            "Prioridade": "🟡 ATENÇÃO",
-            "Ponto": "CAM-15",
-            "Local": "KM 171+200",
-            "Evento": "Baixa cobertura vegetal",
-            "Ação": "Investigar",
-        },
-    ]
-)
+    lista = (
+        pontos_ordenados
+        if ordenar_por.startswith("Prioridade")
+        else sorted(pontos_operacionais, key=lambda p: p["ponto_id"])
+    )
 
-st.dataframe(
-    alertas,
-    use_container_width=True,
-    hide_index=True,
-)
+    tabela = pd.DataFrame(
+        [
+            {
+                "Prioridade": p["resultado"].nivel,
+                "Ponto": p["ponto_id"],
+                "Índice": p["resultado"].indice,
+                "Altura (cm)": p["altura_cm"],
+                "Crescimento (cm/dia)": p["crescimento_cm_dia"],
+                "Roçada mais próxima": (
+                    f"{p['distancia_rocada_km']} km"
+                    if p["distancia_rocada_km"] is not None
+                    else "—"
+                ),
+                "Fonte": p["fonte"],
+            }
+            for p in lista
+        ]
+    )
+
+    st.dataframe(tabela, width="stretch", hide_index=True)
+
+    st.divider()
+    st.subheader("Rota de inspeção sugerida")
+    st.caption(
+        "Protótipo: prioriza os trechos com maior índice. "
+        "A rota final deve considerar logística, sentido e acesso real."
+    )
+
+    for i, p in enumerate(pontos_ordenados[:10], start=1):
+        r = p["resultado"]
+        st.markdown(
+            f"**{i}.** {p['ponto_id']} — "
+            f"{r.nivel} ({r.indice:.0f}/100)"
+        )
+
+    if pontos_ordenados:
+        with st.expander(
+            f"Por que {pontos_ordenados[0]['ponto_id']} está no topo?"
+        ):
+            r = pontos_ordenados[0]["resultado"]
+
+            for fator, contrib in sorted(
+                r.contribuicoes.items(),
+                key=lambda x: -x[1],
+            ):
+                st.write(
+                    f"- **{fator.replace('_', ' ').title()}**: "
+                    f"{contrib:.1f} pontos "
+                    f"(nota bruta {r.fatores[fator]:.0f}/100)"
+                )
+
+
+# ============================================================
+# ANÁLISE
+# ============================================================
+
+with tab_analise:
+    st.subheader("📷 Análise de Vegetação")
+
+    if not analise_foto:
+        st.info(
+            "Abra a barra lateral e use **Tirar foto** ou **Enviar foto**. "
+            "No computador, também é possível selecionar uma foto já salva."
+        )
+
+    elif not analise_foto.get("ok"):
+        st.error(analise_foto.get("erro", "Erro desconhecido na análise."))
+
+    else:
+        left, right = st.columns([1.6, 1])
+
+        with left:
+            st.image(
+                analise_foto["imagem_anotada"],
+                caption="Resultado da análise OpenCV",
+                width="stretch",
+            )
+
+        with right:
+            altura = analise_foto.get("altura_cm")
+            largura = analise_foto.get("largura_cm")
+            cobertura = analise_foto.get("cobertura_pct")
+            escala = analise_foto.get("pixels_por_cm")
+
+            if altura is not None:
+                st.success(
+                    f"🌿 Vegetação detectada — {status_vegetacao(altura)}"
+                )
+
+                a1, a2 = st.columns(2)
+                a1.metric("Altura", formatar_medida(altura))
+                a2.metric(
+                    "Largura",
+                    formatar_medida(largura) if largura else "—",
+                )
+                st.metric(
+                    "Cobertura da cena",
+                    f"{cobertura:.0f}%",
+                )
+
+                if pontos_operacionais:
+                    ponto = next(
+                        (
+                            p
+                            for p in pontos_operacionais
+                            if p["ponto_id"] == ponto_associado
+                        ),
+                        None,
+                    )
+                    if ponto:
+                        st.metric(
+                            "Índice do trecho",
+                            f"{ponto['resultado'].indice:.0f}/100",
+                        )
+                        st.caption(
+                            f"Classificação: **{ponto['resultado'].nivel}**"
+                        )
+            else:
+                st.warning(
+                    "Vegetação não detectada. "
+                    "Confira a iluminação, enquadramento e calibração HSV."
+                )
+
+            st.metric(
+                "Escala",
+                f"{escala:.1f} px/cm" if escala else "sem referência",
+            )
+
+            st.caption(
+                f" Ponto associado: **{ponto_associado}**"
+            )
+
+        if mostrar_mascaras:
+            m1, m2 = st.columns(2)
+            m1.image(
+                analise_foto["mascara_ref"],
+                caption="Máscara — referência",
+                clamp=True,
+            )
+            m2.image(
+                analise_foto["mascara_grama"],
+                caption="Máscara — vegetação",
+                clamp=True,
+            )
+
+    st.divider()
+    st.markdown(
+        """
+### 📱 Como usar com o celular
+
+**Opção 1 — HTTPS:** use **Tirar foto** diretamente.
+
+**Opção 2 — rede local HTTP:** se o navegador bloquear a câmera,
+use **Enviar foto**. O processamento continua sendo feito pelo computador.
+
+Isso é uma limitação de segurança do navegador, não do OpenCV/GreenSense.
+        """
+    )
 
 
 # ============================================================
 # HISTÓRICO
 # ============================================================
 
-st.divider()
+with tab_historico:
+    st.subheader(" Histórico de medições")
 
-st.header(
-    "📈 Histórico"
-)
+    pontos_com_historico = historico.todos_pontos_com_historico()
 
-historico = pd.DataFrame(
-    {
-        "Dia": [
-            "06/08",
-            "07/08",
-            "08/08",
-            "09/08",
-            "10/08",
-            "11/08",
-            "12/08",
-        ],
-        "Altura média (cm)": [
-            35,
-            36,
-            38,
-            40,
-            42,
-            43,
-            45,
-        ],
-        "Cobertura (%)": [
-            91,
-            89,
-            88,
-            86,
-            85,
-            83,
-            81,
-        ],
-    }
-)
+    if not pontos_com_historico:
+        st.info(
+            "Ainda não há medições reais. "
+            "Tire ou envie uma foto para começar o histórico."
+        )
+    else:
+        ponto_hist = st.selectbox(
+            "Ponto",
+            pontos_com_historico,
+        )
 
-c1, c2 = st.columns(
-    2
-)
+        df_hist = historico.historico_do_ponto(ponto_hist)
 
-with c1:
+        st.dataframe(
+            df_hist,
+            width="stretch",
+            hide_index=True,
+        )
 
-    st.markdown(
-        "**🌱 Altura média**"
-    )
+        if len(df_hist.dropna(subset=["altura_cm"])) >= 2:
+            st.line_chart(
+                df_hist.set_index("timestamp")["altura_cm"]
+            )
 
-    st.line_chart(
-        historico.set_index(
-            "Dia"
-        )[
-            "Altura média (cm)"
-        ]
-    )
+            tendencia = historico.tendencia_cm(ponto_hist)
 
-with c2:
+            if tendencia is not None:
+                direcao = (
+                    "crescendo"
+                    if tendencia > 0
+                    else "estável/reduzindo"
+                )
 
-    st.markdown(
-        "**🌿 Cobertura vegetal**"
-    )
-
-    st.line_chart(
-        historico.set_index(
-            "Dia"
-        )[
-            "Cobertura (%)"
-        ]
-    )
+                st.caption(
+                    f"Tendência recente: {tendencia:+.1f} cm "
+                    f"({direcao})."
+                )
+        else:
+            st.caption(
+                "Registre pelo menos duas medições do ponto "
+                "para visualizar a evolução."
+            )
 
 
 # ============================================================
-# RODAPÉ
+# SOBRE
 # ============================================================
 
-st.divider()
+with tab_sobre:
+    st.subheader(" Sobre o GreenSense")
 
+    st.markdown(
+        """
+O GreenSense não quer apenas responder **"quanto mede a grama?"**.
+
+Ele foi pensado para responder:
+
+> **"Onde a Motiva deve mandar a equipe primeiro e por quê?"**
+
+### Arquitetura
+
+```text
+ Câmera do celular
+        ↓
+ Foto
+        ↓
+OpenCV
+        ↓
+Detecção da vegetação
+        ↓
+Altura + cobertura
+        ↓
+ KM + área de roçada
+ Clima
+ Histórico
+        ↓
+ Índice de Prioridade 0–100
+        ↓
+ Mapa operacional
+        ↓
+ Central de Operações
+        ↓
+ Decisão de campo
+```
+
+### Status do protótipo
+
+-  Interface Streamlit
+-  Câmera/upload pelo celular
+-  OpenCV para análise da foto
+-  Dados geográficos KMZ/KML
+-  Mapa Folium
+-  Índice de Prioridade
+-  Histórico sem duplicar a mesma foto
+-  Clima real via Open-Meteo
+-  Índice ainda precisa de validação de campo
+        """
+    )
+
+    st.divider()
+
+    if geo.fonte_real:
+        st.success(
+            "Os dados geográficos atuais estão sendo carregados dos arquivos reais."
+        )
+    else:
+        st.warning(
+            "Os dados geográficos ainda estão em modo demonstração."
+        )
+
+    st.markdown(
+        """
+###  Acesso pelo celular
+
+Para rodar na mesma rede:
+
+```bash
+streamlit run app.py --server.address 0.0.0.0
+```
+
+Depois abra no celular:
+
+```text
+http://IP-DO-COMPUTADOR:8501
+```
+
+Para usar a câmera diretamente, prefira uma URL **HTTPS**.
+        """
+    )
+
+st.divider()
 st.caption(
-    "GreenSense — Protótipo de interface. "
-    "Dados demonstrativos preparados para "
-    "integração com RTSP, MQTT e Machine Learning."
+    "GreenSense — protótipo Motiva • Visão computacional + geointeligência + priorização operacional"
 )
-
-
-# ============================================================
-# ATUALIZAÇÃO
-# ============================================================
-
-time.sleep(
-    intervalo
-)
-
-st.rerun()
